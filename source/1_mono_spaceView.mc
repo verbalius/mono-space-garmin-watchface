@@ -1,14 +1,27 @@
 import Toybox.Graphics;
+import Toybox.Activity;
 import Toybox.Lang;
 import Toybox.System;
 import Toybox.WatchUi;
 import Toybox.Time;
 import Toybox.Time.Gregorian;
+import Toybox.Timer;
 import Toybox.Weather;
 
 class _1_mono_spaceView extends WatchUi.WatchFace {
 
     var _isSleeping = false;
+    var _highPowerRefreshTimer as Timer.Timer or Null = null;
+    var _timeLabel as Text or Null = null;
+    var _secondsLabel as Text or Null = null;
+    var _batteryLabel as Text or Null = null;
+    var _dateLabel as Text or Null = null;
+    var _heartRateLabel as Text or Null = null;
+    var _weatherTempLabel as Text or Null = null;
+    var _sunTimesLabel as Text or Null = null;
+    var _sunSymbol as WatchUi.Bitmap or Null = null;
+    var _lastHeartRate = null;
+    var _lastHeartRateMoment as Time.Moment or Null = null;
 
     function initialize() {
         WatchFace.initialize();
@@ -17,100 +30,138 @@ class _1_mono_spaceView extends WatchUi.WatchFace {
     // Load your resources here
     function onLayout(dc as Dc) as Void {
         setLayout(Rez.Layouts.WatchFace(dc));
+
+        _timeLabel = View.findDrawableById("TimeLabel") as Text;
+        _secondsLabel = View.findDrawableById("SecondsLabel") as Text;
+        _batteryLabel = View.findDrawableById("BatteryLabel") as Text;
+        _dateLabel = View.findDrawableById("DateLabel") as Text;
+        _heartRateLabel = View.findDrawableById("HeartRateLabel") as Text;
+        _weatherTempLabel = View.findDrawableById("WeatherTempLabel") as Text;
+        _sunTimesLabel = View.findDrawableById("SunTimesLabel") as Text;
+        _sunSymbol = View.findDrawableById("SunSymbol") as WatchUi.Bitmap;
     }
 
     // Called when this View is brought to the foreground. Restore
     // the state of this View and prepare it to be shown. This includes
     // loading resources into memory.
-    function onShow() as Void {}
+    function onShow() as Void {
+        if (!_isSleeping) {
+            startHighPowerRefresh();
+        }
+    }
 
     // Update the view
     function onUpdate(dc as Dc) as Void {
-        var WIDTH = dc.getWidth();
-        var HEIGHT = dc.getHeight();
+        var width = dc.getWidth();
+        var height = dc.getHeight();
+        var centerX = width / 2;
+        var centerY = height / 2;
+        var arcLength = 60;
+        var arcWidth = 10;
+        var arcRadius = height / 2 - arcWidth / 2;
 
         // Get and show the current time
         var clockTime = System.getClockTime();
         var timeString = Lang.format("$1$:$2$", [clockTime.hour, clockTime.min.format("%02d")]);
-        var timeLabel = View.findDrawableById("TimeLabel") as Text;
-        timeLabel.setText(timeString);
-        var secondsLabel = View.findDrawableById("SecondsLabel") as Text;
+
+        (_timeLabel as Text).setText(timeString);
         if (_isSleeping) {
-            secondsLabel.setText("--");
+            (_secondsLabel as Text).setText("--");
         } else {
-            secondsLabel.setText(clockTime.sec.format("%02d"));
+            (_secondsLabel as Text).setText(clockTime.sec.format("%02d"));
         }
 
         // Battery
-        var batteryLabel = View.findDrawableById("BatteryLabel") as Text;
-        batteryLabel.setText(getBatteryString());
-        batteryLabel.setColor(getBatteryColor());
+        var battery = getBattery();
+        (_batteryLabel as Text).setText(battery.format("%d") + "%");
+        (_batteryLabel as Text).setColor(getBatteryColorForLevel(battery));
 
         // Date
-        var dateLabel = View.findDrawableById("DateLabel") as Text;
-        dateLabel.setText(getDate());
+        (_dateLabel as Text).setText(getDate());
 
         // Heart rate
-        var heartRateLabel = View.findDrawableById("HeartRateLabel") as Text;
-        heartRateLabel.setText(getHeartRateString());
+        (_heartRateLabel as Text).setText(getHeartRateString());
 
         // Weather temperature
-        var weatherTempLabel = View.findDrawableById("WeatherTempLabel") as Text;
-        weatherTempLabel.setText(getWeatherTemperatureString());
+        (_weatherTempLabel as Text).setText(getWeatherTemperatureString());
 
         // Sunrise / Sunset
-        var sunTimesLabel = View.findDrawableById("SunTimesLabel") as Text;
-        sunTimesLabel.setText(getSunTimesString());
+        (_sunTimesLabel as Text).setText(getSunTimesString());
 
-        var sunSymbol = View.findDrawableById("SunSymbol") as WatchUi.Bitmap;
         if (isGoldenHour()) {
-            sunSymbol.setBitmap(Rez.Drawables.SunIconGolden);
+            (_sunSymbol as WatchUi.Bitmap).setBitmap(Rez.Drawables.SunIconGolden);
         } else {
-            sunSymbol.setBitmap(Rez.Drawables.SunIcon);
+            (_sunSymbol as WatchUi.Bitmap).setBitmap(Rez.Drawables.SunIcon);
         }
 
         // Call the parent onUpdate function to redraw the layout
         View.onUpdate(dc);
 
         // Draw Body Battery and Steps arcs
-        var ARCLENGTH = 60;
-        var ARCWIDTH = 10;
-        dc.setPenWidth(ARCWIDTH);
+        dc.setPenWidth(arcWidth);
+
+        var bodyBattery = getBodyBattery();
+        var activityInfo = Toybox.ActivityMonitor.getInfo();
+        var steps = activityInfo.steps;
+        var stepGoal = activityInfo.stepGoal;
+        var stepsRatio = getStepsRatioThresholded(steps, stepGoal);
 
         // Draw Body Battery Arc
         dc.setColor(Graphics.COLOR_DK_BLUE, Graphics.COLOR_TRANSPARENT);
-        dc.drawArc(WIDTH / 2, HEIGHT / 2, HEIGHT / 2 - ARCWIDTH / 2, Graphics.ARC_CLOCKWISE, 180 + ARCLENGTH / 2, 180 - ARCLENGTH / 2);
+        dc.drawArc(centerX, centerY, arcRadius, Graphics.ARC_CLOCKWISE, 180 + arcLength / 2, 180 - arcLength / 2);
 
-        if (getBodyBattery() != null) {
+        if (bodyBattery != null) {
             dc.setColor(Graphics.COLOR_BLUE, Graphics.COLOR_TRANSPARENT);
-            dc.drawArc(WIDTH / 2, HEIGHT / 2, HEIGHT / 2 - ARCWIDTH / 2, Graphics.ARC_CLOCKWISE, 180 + ARCLENGTH / 2, 180 + ARCLENGTH / 2 - ARCLENGTH * getBodyBattery() / 100);
+            dc.drawArc(centerX, centerY, arcRadius, Graphics.ARC_CLOCKWISE, 180 + arcLength / 2, 180 + arcLength / 2 - arcLength * bodyBattery / 100);
         }
 
         // Draw Steps Arc
         dc.setColor(Graphics.COLOR_DK_RED, Graphics.COLOR_TRANSPARENT);
-        dc.drawArc(WIDTH / 2, HEIGHT / 2, HEIGHT / 2 - ARCWIDTH / 2, Graphics.ARC_COUNTER_CLOCKWISE, 0 - ARCLENGTH / 2, 0 + ARCLENGTH / 2);
+        dc.drawArc(centerX, centerY, arcRadius, Graphics.ARC_COUNTER_CLOCKWISE, 0 - arcLength / 2, 0 + arcLength / 2);
 
-        if (getSteps() != null && getSteps() > 0 && getStepGoal() != null) {
+        if (steps != null && steps > 0 && stepGoal != null && stepsRatio != null) {
             dc.setColor(Graphics.COLOR_YELLOW, Graphics.COLOR_TRANSPARENT);
-            dc.drawArc(WIDTH / 2, HEIGHT / 2, HEIGHT / 2 - ARCWIDTH / 2, Graphics.ARC_COUNTER_CLOCKWISE, 0 - ARCLENGTH / 2, 0 - ARCLENGTH / 2 + ARCLENGTH * getStepsRatioThresholded());
+            dc.drawArc(centerX, centerY, arcRadius, Graphics.ARC_COUNTER_CLOCKWISE, 0 - arcLength / 2, 0 - arcLength / 2 + arcLength * stepsRatio);
         }
-
-        // drawReferenceLines(dc);
     }
 
     // Called when this View is removed from the screen. Save the
     // state of this View here. This includes freeing resources from
     // memory.
-    function onHide() as Void {}
+    function onHide() as Void {
+        stopHighPowerRefresh();
+    }
 
     // The user has just looked at their watch. Timers and animations may be started here.
     function onExitSleep() as Void {
         _isSleeping = false;
+        startHighPowerRefresh();
     }
 
     // Terminate any active timers and prepare for slow updates.
     function onEnterSleep() as Void {
         _isSleeping = true;
+        stopHighPowerRefresh();
+    }
+
+    function startHighPowerRefresh() as Void {
+        if (_highPowerRefreshTimer == null) {
+            _highPowerRefreshTimer = new Timer.Timer();
+        }
+
+        _highPowerRefreshTimer.start(method(:onHighPowerRefreshTick), 1000, true);
+    }
+
+    function stopHighPowerRefresh() as Void {
+        if (_highPowerRefreshTimer != null) {
+            _highPowerRefreshTimer.stop();
+        }
+    }
+
+    function onHighPowerRefreshTick() as Void {
+        if (!_isSleeping) {
+            WatchUi.requestUpdate();
+        }
     }
 
     function getDate() as String {
@@ -138,19 +189,70 @@ class _1_mono_spaceView extends WatchUi.WatchFace {
     }
 
     function getHeartRate() as Number or Null {
-        var heartrateIterator = Toybox.ActivityMonitor.getHeartRateHistory(5, true);
+        var liveHeartRate = getLiveHeartRate();
+        if (liveHeartRate != null) {
+            _lastHeartRate = liveHeartRate;
+            _lastHeartRateMoment = Time.now();
+            return liveHeartRate;
+        }
+
+        var recentWindow = new Time.Duration(12);
+        var heartrateIterator = Toybox.ActivityMonitor.getHeartRateHistory(recentWindow, true);
         var sample = heartrateIterator.next();
 
         while (sample != null) {
             var heartRate = sample.heartRate;
-            if (heartRate != null && heartRate > 0 && heartRate != 255 &&
-                (!(Toybox.ActivityMonitor has :INVALID_HR_SAMPLE) || heartRate != Toybox.ActivityMonitor.INVALID_HR_SAMPLE)) {
-                return heartRate;
+            if (isValidHeartRate(heartRate)) {
+                if (isRecentHeartRateSample(sample, 8)) {
+                    _lastHeartRate = heartRate;
+                    _lastHeartRateMoment = Time.now();
+                    return heartRate;
+                }
             }
+
             sample = heartrateIterator.next();
         }
 
+        if (_lastHeartRate != null && _lastHeartRateMoment != null) {
+            var cacheAge = Time.now().subtract(_lastHeartRateMoment).value();
+            if (cacheAge <= 12) {
+                return _lastHeartRate;
+            }
+        }
+
         return null;
+    }
+
+    function getLiveHeartRate() as Number or Null {
+        if (!(Toybox has :Activity) || !(Activity has :getActivityInfo)) {
+            return null;
+        }
+
+        var activityInfo = Activity.getActivityInfo();
+        if (activityInfo == null || !(activityInfo has :currentHeartRate)) {
+            return null;
+        }
+
+        var heartRate = activityInfo.currentHeartRate;
+        if (isValidHeartRate(heartRate)) {
+            return heartRate;
+        }
+
+        return null;
+    }
+
+    function isValidHeartRate(heartRate as Number or Null) as Boolean {
+        return heartRate != null && heartRate > 0 && heartRate != 255 &&
+            (!(Toybox.ActivityMonitor has :INVALID_HR_SAMPLE) || heartRate != Toybox.ActivityMonitor.INVALID_HR_SAMPLE);
+    }
+
+    function isRecentHeartRateSample(sample, maxAgeSeconds as Number) as Boolean {
+        if (sample == null || sample.when == null) {
+            return false;
+        }
+
+        var age = Time.now().subtract(sample.when).value();
+        return age <= maxAgeSeconds;
     }
 
     function getHeartRateString() as String {
@@ -184,33 +286,7 @@ class _1_mono_spaceView extends WatchUi.WatchFace {
         return null;
     }
 
-    function getBodyBatteryString() as String {
-        var bodyBattery = getBodyBattery();
-        if (bodyBattery == null) {
-            return "-";
-        }
-        return bodyBattery.format("%d") + "%";
-    }
-
-    function getSteps() as Number or Null {
-        return Toybox.ActivityMonitor.getInfo().steps;
-    }
-
-    function getStepsString() as String {
-        var steps = getSteps();
-        if (steps == null) {
-            return "-";
-        }
-        return getSteps().format("%d");
-    }
-
-    function getStepGoal() as Number or Null {
-        return Toybox.ActivityMonitor.getInfo().stepGoal;
-    }
-
-    function getStepsRatioThresholded() as Float or Null {
-        var stepGoal = getStepGoal();
-        var steps = getSteps();
+    function getStepsRatioThresholded(steps as Number or Null, stepGoal as Number or Null) as Float or Null {
 
         if (steps == null || stepGoal == null) {
             return null;
@@ -227,12 +303,7 @@ class _1_mono_spaceView extends WatchUi.WatchFace {
         return Toybox.System.getSystemStats().battery;
     }
 
-    function getBatteryString() as String {
-        return getBattery().format("%d") + "%";
-    }
-
-    function getBatteryColor() as Number {
-        var battery = getBattery();
+    function getBatteryColorForLevel(battery as Float) as Number {
 
         if (battery >= 80) {
             return Graphics.COLOR_GREEN;
@@ -327,33 +398,4 @@ class _1_mono_spaceView extends WatchUi.WatchFace {
         return isMorningGolden || isEveningGolden;
     }
 
-    function drawReferenceLines(dc as Dc) as Void {
-        var WIDTH = dc.getWidth();
-        var HEIGHT = dc.getHeight();
-
-        dc.setPenWidth(1);
-
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.drawRectangle(0.2 * WIDTH, 0.1 * HEIGHT, 0.6 * WIDTH, 0.8 * HEIGHT);
-        dc.drawRectangle(0.15 * WIDTH, 0.15 * HEIGHT, 0.7 * WIDTH, 0.7 * HEIGHT);
-        dc.setColor(Graphics.COLOR_BLUE, Graphics.COLOR_TRANSPARENT);
-        dc.drawRectangle(0.1 * WIDTH, 0.2 * HEIGHT, 0.8 * WIDTH, 0.6 * HEIGHT);
-        dc.drawRectangle(0.05 * WIDTH, 0.3 * HEIGHT, 0.9 * WIDTH, 0.4 * HEIGHT);
-
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-        dc.fillRectangle(0, 0.25 * HEIGHT, WIDTH, 1);
-        dc.fillRectangle(0, 0.5 * HEIGHT, WIDTH, 1);
-        dc.fillRectangle(0, 0.75 * HEIGHT, WIDTH, 1);
-        dc.fillRectangle(0.25 * WIDTH, 0, 1, HEIGHT);
-
-        dc.fillRectangle(0.1 * WIDTH, 0, 1, HEIGHT);
-        dc.fillRectangle(0.9 * WIDTH, 0, 1, HEIGHT);
-
-        dc.fillRectangle(0.5 * WIDTH, 0, 1, HEIGHT);
-        dc.fillRectangle(0.75 * WIDTH, 0, 1, HEIGHT);
-
-        dc.setColor(Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
-        dc.fillRectangle(0.3333 * WIDTH, 0, 1, HEIGHT);
-        dc.fillRectangle(0.6666 * WIDTH, 0, 1, HEIGHT);
-    }
 }

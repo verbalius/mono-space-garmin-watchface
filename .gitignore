@@ -1,4 +1,9 @@
 bin
 *.prg
 *.prg.debug
+*.prg.debug.xml
 .DS_Store
+export
+mir
+internal-mir
+gen

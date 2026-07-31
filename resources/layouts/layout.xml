@@ -1,6 +1,6 @@
 <layout id="WatchFace">
     <bitmap id="HeartSymbol"      x="center" y="2%"  filename="../drawables/heart.svg" />
-    <label  id="HeartRateLabel"   x="center" y="11%"  font="Graphics.FONT_SYSTEM_XTINY"            justification="Graphics.TEXT_JUSTIFY_CENTER" color="Graphics.COLOR_WHITE" />
+    <label  id="HeartRateLabel"   x="center" y="11%" font="Graphics.FONT_SYSTEM_XTINY"           justification="Graphics.TEXT_JUSTIFY_CENTER" color="Graphics.COLOR_WHITE" />
     <label  id="TimeLabel"        x="center" y="33%" font="Graphics.FONT_SYSTEM_NUMBER_THAI_HOT" justification="Graphics.TEXT_JUSTIFY_CENTER" color="Graphics.COLOR_WHITE" />
     <label  id="DateLabel"        x="15%"    y="23%" font="Graphics.FONT_SYSTEM_XTINY"           justification="Graphics.TEXT_JUSTIFY_LEFT"   color="Graphics.COLOR_WHITE" />
     <label  id="WeatherTempLabel" x="85%"    y="23%" font="Graphics.FONT_SYSTEM_XTINY"           justification="Graphics.TEXT_JUSTIFY_RIGHT"  color="Graphics.COLOR_WHITE" />
